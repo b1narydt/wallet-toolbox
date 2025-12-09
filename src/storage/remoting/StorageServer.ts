@@ -24,6 +24,7 @@ export interface WalletStorageServerOptions {
   calculateRequestPrice?: (req: Request) => number | Promise<number>
   adminIdentityKeys?: string[]
   makeLogger?: MakeWalletLogger
+  bodyParserLimit?: string // e.g., '30mb', '100mb' - default: '30mb'
 }
 
 export class StorageServer {
@@ -35,6 +36,7 @@ export class StorageServer {
   private calculateRequestPrice?: (req: Request) => number | Promise<number>
   private adminIdentityKeys?: string[]
   private makeLogger?: MakeWalletLogger
+  private bodyParserLimit: string
 
   constructor(storage: StorageProvider, options: WalletStorageServerOptions) {
     this.storage = storage
@@ -44,12 +46,13 @@ export class StorageServer {
     this.calculateRequestPrice = options.calculateRequestPrice
     this.adminIdentityKeys = options.adminIdentityKeys
     this.makeLogger = options.makeLogger
+    this.bodyParserLimit = options.bodyParserLimit || '30mb'
 
     this.setupRoutes()
   }
 
   private setupRoutes(): void {
-    this.app.use(express.json({ limit: '30mb' }))
+    this.app.use(express.json({ limit: this.bodyParserLimit }))
 
     // This allows the API to be used everywhere when CORS is enforced
     this.app.use((req, res, next) => {
