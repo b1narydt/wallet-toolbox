@@ -97,6 +97,7 @@ import {
 } from './sdk/types'
 import { WalletServices } from './sdk/WalletServices.interfaces'
 import { PrivilegedKeyManager } from './sdk/PrivilegedKeyManager'
+import type { SigningProvider } from './signer/SigningProvider'
 import { WERR_INTERNAL, WERR_INVALID_PARAMETER, WERR_NOT_IMPLEMENTED, WERR_REVIEW_ACTIONS } from './sdk/WERR_errors'
 import { AuthId, StorageCreateActionResult, StorageInternalizeActionResult } from './sdk/WalletStorage.interfaces'
 import { WalletError } from './sdk/WalletError'
@@ -178,6 +179,7 @@ export interface WalletArgs {
   services?: WalletServices
   monitor?: Monitor
   privilegedKeyManager?: PrivilegedKeyManager
+  signingProvider?: SigningProvider
   settingsManager?: WalletSettingsManager
   lookupResolver?: LookupResolver
   /**
@@ -245,6 +247,7 @@ export class Wallet implements WalletInterface, ProtoWallet {
   userParty: string
   proto: ProtoWallet
   privilegedKeyManager?: PrivilegedKeyManager
+  signingProvider?: SigningProvider
   makeLogger?: MakeWalletLogger
 
   pendingSignActions: Record<string, PendingSignAction>
@@ -269,6 +272,7 @@ export class Wallet implements WalletInterface, ProtoWallet {
           services,
           monitor,
           privilegedKeyManager,
+          signingProvider: argsOrSigner.signingProvider,
           makeLogger
         }
       : argsOrSigner
@@ -293,6 +297,7 @@ export class Wallet implements WalletInterface, ProtoWallet {
     this.services = args.services
     this.monitor = args.monitor
     this.privilegedKeyManager = args.privilegedKeyManager
+    this.signingProvider = args.signingProvider
     this.makeLogger = args.makeLogger
     this.contactSource = args.contactSource
 

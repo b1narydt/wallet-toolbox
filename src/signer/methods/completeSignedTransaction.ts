@@ -1,9 +1,10 @@
-import { Beef, SignActionSpend, Spend, Transaction } from '@bsv/sdk'
+import { Beef, PublicKey, SignActionSpend, Spend, Transaction } from '@bsv/sdk'
 import { PendingSignAction, Wallet } from '../../Wallet'
 import { WERR_INVALID_PARAMETER } from '../../sdk/WERR_errors'
 import { asBsvSdkScript } from '../../utility/utilityHelpers'
 import { ScriptTemplateBRC29 } from '../../utility/ScriptTemplateBRC29'
 import { WalletError } from '../../sdk/WalletError'
+import { makeProviderUnlockTemplate } from '../ProviderUnlockTemplate'
 
 export async function completeSignedTransaction (
   prior: PendingSignAction,
@@ -36,20 +37,36 @@ export async function completeSignedTransaction (
   /// //////////////////
   // Insert SABPPP unlock templates for wallet signed inputs
   /// //////////////////
+  const provider = wallet.signingProvider
+  if (provider?.prepareSpendContexts != null) {
+    await provider.prepareSpendContexts(prior.tx, prior.pdi)
+  }
   for (const pdi of prior.pdi) {
-    const sabppp = new ScriptTemplateBRC29({
-      derivationPrefix: pdi.derivationPrefix,
-      derivationSuffix: pdi.derivationSuffix,
-      keyDeriver: wallet.keyDeriver
-    })
-    const keys = wallet.getClientChangeKeyPair()
-    const lockerPrivKey = keys.privateKey
-    const unlockerPubKey = pdi.unlockerPubKey || keys.publicKey
-    const sourceSatoshis = pdi.sourceSatoshis
-    const lockingScript = asBsvSdkScript(pdi.lockingScript)
-    const unlockTemplate = sabppp.unlock(lockerPrivKey, unlockerPubKey, sourceSatoshis, lockingScript)
     const input = prior.tx.inputs[pdi.vin]
-    input.unlockingScriptTemplate = unlockTemplate
+    if (provider != null) {
+      const unlockerPubKeyHex = pdi.unlockerPubKey ?? provider.identityPublicKey().toString()
+      input.unlockingScriptTemplate = makeProviderUnlockTemplate(
+        provider,
+        pdi.derivationPrefix,
+        pdi.derivationSuffix,
+        PublicKey.fromString(unlockerPubKeyHex),
+        pdi.sourceSatoshis,
+        asBsvSdkScript(pdi.lockingScript)
+      )
+    } else {
+      const sabppp = new ScriptTemplateBRC29({
+        derivationPrefix: pdi.derivationPrefix,
+        derivationSuffix: pdi.derivationSuffix,
+        keyDeriver: wallet.keyDeriver
+      })
+      const keys = wallet.getClientChangeKeyPair()
+      const lockerPrivKey = keys.privateKey
+      const unlockerPubKey = pdi.unlockerPubKey || keys.publicKey
+      const sourceSatoshis = pdi.sourceSatoshis
+      const lockingScript = asBsvSdkScript(pdi.lockingScript)
+      const unlockTemplate = sabppp.unlock(lockerPrivKey, unlockerPubKey, sourceSatoshis, lockingScript)
+      input.unlockingScriptTemplate = unlockTemplate
+    }
   }
 
   /// //////////////////
