@@ -82,7 +82,7 @@ async function createNewTx (wallet: Wallet, vargs: Validation.ValidCreateActionA
 
   const reference = dcr.reference
 
-  const { tx, amount, pdi } = buildSignableTransaction(dcr, vargs, wallet)
+  const { tx, amount, pdi } = await buildSignableTransaction(dcr, vargs, wallet)
   logger?.log('built signable transaction')
 
   const prior: PendingSignAction = { reference, dcr, args: vargs, amount, tx, pdi }

@@ -7,21 +7,18 @@ import {
 } from '../../sdk/WalletStorage.interfaces'
 import { WERR_INVALID_PARAMETER } from '../../sdk/WERR_errors'
 import { asBsvSdkScript, verifyTruthy } from '../../utility/utilityHelpers'
-import { KeyPair } from '../../sdk/types'
 import { ScriptTemplateBRC29 } from '../../utility/ScriptTemplateBRC29'
 
-export function buildSignableTransaction (
+export async function buildSignableTransaction (
   dctr: StorageCreateActionResult,
   args: Validation.ValidCreateActionArgs,
   wallet: Wallet
-): {
+): Promise<{
     tx: Transaction
     amount: number
     pdi: PendingStorageInput[]
     log: string
-  } {
-  const changeKeys = wallet.getClientChangeKeyPair()
-
+  }> {
   const inputBeef = (args.inputBEEF != null) ? Beef.fromBinary(args.inputBEEF) : undefined
 
   const { inputs: storageInputs, outputs: storageOutputs } = dctr
@@ -68,7 +65,7 @@ export function buildSignableTransaction (
     const change = out.providedBy === 'storage' && out.purpose === 'change'
 
     const lockingScript = change
-      ? makeChangeLock(out, dctr, args, changeKeys, wallet)
+      ? await makeChangeLock(out, dctr, args, wallet)
       : asBsvSdkScript(out.lockingScript)
 
     const output: TransactionOutput = {
@@ -317,17 +314,24 @@ export function verifyUnrequestedOutputsAreChangeOrCommission (
 }
 
 /**
- * Derive a change output locking script
+ * Derive a change output locking script.
+ * Routes through wallet.signingProvider when configured; otherwise derives
+ * locally exactly as before. changeKeys are computed lazily so provider mode
+ * never materializes the root private key.
  */
-export function makeChangeLock (
+export async function makeChangeLock (
   out: StorageCreateTransactionSdkOutput,
   dctr: StorageCreateActionResult,
   args: Validation.ValidCreateActionArgs,
-  changeKeys: KeyPair,
   wallet: Wallet
-): Script {
+): Promise<Script> {
   const derivationPrefix = dctr.derivationPrefix
   const derivationSuffix = verifyTruthy(out.derivationSuffix)
+  const provider = wallet.signingProvider
+  if (provider != null) {
+    return Script.fromBinary(await provider.deriveChangeLockingScript(derivationPrefix, derivationSuffix))
+  }
+  const changeKeys = wallet.getClientChangeKeyPair()
   const sabppp = new ScriptTemplateBRC29({
     derivationPrefix,
     derivationSuffix,
