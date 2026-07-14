@@ -1,0 +1,38 @@
+{
+  "name": "@bsv/wallet-toolbox-mobile",
+  "version": "2.4.0",
+  "description": "Client only Wallet Storage",
+  "main": "./out/src/index.mobile.js",
+  "types": "./out/src/index.mobile.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bsv-blockchain/ts-stack.git",
+    "directory": "packages/wallet/wallet-toolbox/mobile"
+  },
+  "author": "Tone Engel",
+  "license": "SEE LICENSE IN license.md",
+  "keywords": [
+    "bsv",
+    "wallet",
+    "BRC100"
+  ],
+  "bugs": {
+    "url": "https://github.com/bsv-blockchain/ts-stack/issues"
+  },
+  "homepage": "https://github.com/bsv-blockchain/ts-stack/tree/main/packages/wallet/wallet-toolbox/mobile#readme",
+  "dependencies": {
+    "hash-wasm": "^4.12.0",
+    "idb": "^8.0.2"
+  },
+  "peerDependencies": {
+    "@bsv/sdk": "^2.1.6"
+  },
+  "peerDependenciesMeta": {
+    "@bsv/sdk": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@bsv/sdk": "^2.1.6"
+  }
+}

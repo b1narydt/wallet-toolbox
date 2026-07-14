@@ -1,0 +1,193 @@
+import { Beef, ListOutputsResult, OriginatorDomainNameStringUnder250Bytes, WalletOutput, Validation } from '@bsv/sdk'
+import { getListOutputsSpecOp } from './ListOutputsSpecOp'
+import { StorageIdb } from '../StorageIdb'
+import { AuthId, FindOutputsArgs } from '../../sdk/WalletStorage.interfaces'
+import { verifyId } from '../../utility/utilityHelpers'
+import { TableOutputBasket } from '../schema/tables/TableOutputBasket'
+import { TransactionStatus } from '../../sdk/types'
+import { asString } from '../../utility/utilityHelpers.noBuffer'
+
+export async function listOutputsIdb (
+  storage: StorageIdb,
+  auth: AuthId,
+  vargs: Validation.ValidListOutputsArgs,
+  originator?: OriginatorDomainNameStringUnder250Bytes
+): Promise<ListOutputsResult> {
+  const userId = verifyId(auth.userId)
+  const limit = vargs.limit
+  // Negative offset means "page from the tail": reverse the order and reindex. Matches Knex/Bun.
+  let offset = vargs.offset
+  let orderDescending = false
+  if (offset < 0) {
+    offset = -offset - 1
+    orderDescending = true
+  }
+
+  const r: ListOutputsResult = {
+    totalOutputs: 0,
+    outputs: []
+  }
+
+  /*
+        ListOutputsArgs {
+            basket: BasketStringUnder300Bytes
+
+            tags?: OutputTagStringUnder300Bytes[]
+            tagQueryMode?: 'all' | 'any' // default any
+
+            limit?: PositiveIntegerDefault10Max10000
+            offset?: PositiveIntegerOrZero
+        }
+    */
+
+  let { specOp, basket, tags } = getListOutputsSpecOp(vargs.basket, vargs.tags)
+
+  let basketId: number | undefined
+  const basketsById: Record<number, TableOutputBasket> = {}
+  if (basket) {
+    const baskets = await storage.findOutputBaskets({
+      partial: { userId, name: basket }
+    })
+    if (baskets.length !== 1) {
+      // If basket does not exist, result is no outputs.
+      return r
+    }
+    basketId = baskets[0].basketId!
+    basketsById[basketId] = baskets[0]
+  }
+
+  const specOpTags: string[] = []
+  if (specOp?.tagsParamsCount) {
+    specOpTags.push(...tags.splice(0, Math.min(tags.length, specOp.tagsParamsCount)))
+  }
+  if (specOp?.tagsToIntercept != null) {
+    // Pull out tags used by current specOp
+    const ts = tags
+    tags = []
+    for (const t of ts) {
+      if (specOp.tagsToIntercept.length === 0 || specOp.tagsToIntercept.includes(t)) {
+        specOpTags.push(t)
+        if (t === 'all') {
+          basketId = undefined
+        }
+      } else {
+        tags.push(t)
+      }
+    }
+  }
+
+  if (specOp?.resultFromTags != null) {
+    const r = await specOp.resultFromTags(storage, auth, vargs, specOpTags)
+    return r
+  }
+
+  const tagIds: number[] = []
+  if (tags && tags.length > 0) {
+    await storage.filterOutputTags({ partial: { userId, isDeleted: false } }, ot => {
+      if (tags.includes(ot.tag)) {
+        tagIds.push(ot.outputTagId)
+      }
+    })
+  }
+
+  const isQueryModeAll = vargs.tagQueryMode === 'all'
+  if (isQueryModeAll && tagIds.length < tags.length)
+  // all the required tags don't exist, impossible to satisfy.
+  { return r }
+
+  if (!isQueryModeAll && tagIds.length === 0 && tags.length > 0)
+  // any and only non-existing labels, impossible to satisfy.
+  { return r }
+
+  const includeSpent = false
+
+  const stati: TransactionStatus[] = ['completed', 'unproven', 'nosend', 'sending']
+
+  const args: FindOutputsArgs = {
+    partial: {
+      userId,
+      basketId,
+      spendable: includeSpent ? undefined : true
+    },
+    txStatus: stati,
+    noScript: true,
+    orderDescending
+  }
+  if (!specOp?.ignoreLimit) args.paged = { limit, offset }
+
+  let outputs = await storage.findOutputs(args, tagIds, isQueryModeAll)
+  if (outputs.length === vargs.limit) {
+    args.paged = undefined
+    r.totalOutputs = await storage.countOutputs(args, tagIds, isQueryModeAll)
+  } else {
+    r.totalOutputs = outputs.length
+  }
+
+  if (specOp != null) {
+    if (specOp.filterOutputs != null) outputs = await specOp.filterOutputs(storage, auth, vargs, specOpTags, outputs)
+    if (specOp.resultFromOutputs != null) {
+      const r = await specOp.resultFromOutputs(storage, auth, vargs, specOpTags, outputs)
+      return r
+    }
+  }
+
+  /*
+        ListOutputsArgs {
+            include?: 'locking scripts' | 'entire transactions'
+            includeCustomInstructions?: BooleanDefaultFalse
+            includeTags?: BooleanDefaultFalse
+            includeLabels?: BooleanDefaultFalse
+        }
+
+        ListOutputsResult {
+            totalOutputs: PositiveIntegerOrZero
+            BEEF?: BEEF
+            outputs: Array<WalletOutput>
+        }
+
+        WalletOutput {
+            satoshis: SatoshiValue
+            spendable: boolean
+            outpoint: OutpointString
+
+            customInstructions?: string
+            lockingScript?: HexString
+            tags?: OutputTagStringUnder300Bytes[]
+            labels?: LabelStringUnder300Bytes[]
+        }
+    */
+
+  const labelsByTxid: Record<string, string[]> = {}
+
+  const beef = new Beef()
+
+  for (const o of outputs) {
+    const wo: WalletOutput = {
+      satoshis: Number(o.satoshis),
+      spendable: !!o.spendable,
+      outpoint: `${o.txid}.${o.vout}`
+    }
+    r.outputs.push(wo)
+    if (vargs.includeCustomInstructions && o.customInstructions) wo.customInstructions = o.customInstructions
+    if (vargs.includeLabels && o.txid) {
+      labelsByTxid[o.txid] ??= (await storage.getLabelsForTransactionId(o.transactionId)).map(l => l.label)
+      wo.labels = labelsByTxid[o.txid]
+    }
+    if (vargs.includeTags) {
+      wo.tags = (await storage.getTagsForOutputId(o.outputId)).map(t => t.tag)
+    }
+    if (vargs.includeLockingScripts) {
+      await storage.validateOutputScript(o)
+      if (o.lockingScript != null) wo.lockingScript = asString(o.lockingScript)
+    }
+    if (vargs.includeTransactions && (beef.findTxid(o.txid!) == null)) {
+      await storage.getValidBeefForKnownTxid(o.txid!, beef, undefined, vargs.knownTxids)
+    }
+  }
+
+  if (vargs.includeTransactions) {
+    r.BEEF = beef.toBinary()
+  }
+
+  return r
+}

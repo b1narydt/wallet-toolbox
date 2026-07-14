@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "rootDir": ".", // Include both src and test directories
+    "outDir": "./mobile/out",
+    "target": "es2022",
+    "lib": ["es2022", "dom"],
+    "module": "commonjs",
+    "sourceMap": true,
+    "allowJs": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "declaration": true,
+    "declarationMap": true,
+    "noImplicitOverride": true,
+    "types": ["node"]
+  },
+  "files": [
+    "src/index.mobile.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "out",
+    "client/out",
+    "mobile/out"
+  ]
+}

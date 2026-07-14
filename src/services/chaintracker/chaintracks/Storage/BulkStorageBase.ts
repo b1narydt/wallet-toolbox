@@ -1,0 +1,81 @@
+// /* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { BulkStorageApi, BulkStorageBaseOptions } from '../Api/BulkStorageApi'
+
+import { ChaintracksStorageBase } from './ChaintracksStorageBase'
+
+import { HeightRange } from '../util/HeightRange'
+import { BulkHeaderFileInfo, BulkHeaderFilesInfo } from '../util/BulkHeaderFile'
+import { Chain } from '../../../../sdk/types'
+import { BlockHeader } from '../Api/BlockHeaderApi'
+
+import { ChaintracksFsApi } from '../Api/ChaintracksFsApi'
+import { asUint8Array } from '../../../../utility/utilityHelpers.noBuffer'
+
+export abstract class BulkStorageBase implements BulkStorageApi {
+  static createBulkStorageBaseOptions (chain: Chain, fs: ChaintracksFsApi): BulkStorageBaseOptions {
+    const options: BulkStorageBaseOptions = {
+      chain,
+      fs
+    }
+    return options
+  }
+
+  chain: Chain
+  fs: ChaintracksFsApi
+  log: (...args: any[]) => void = () => {}
+
+  constructor (options: BulkStorageBaseOptions) {
+    this.chain = options.chain
+    this.fs = options.fs
+  }
+
+  async shutdown (): Promise<void> { /* intentional no-op: subclasses override when needed */ }
+
+  abstract appendHeaders (minHeight: number, count: number, newBulkHeaders: Uint8Array): Promise<void>
+  abstract getMaxHeight (): Promise<number>
+  abstract headersToBuffer (height: number, count: number): Promise<Uint8Array>
+  abstract findHeaderForHeightOrUndefined (height: number): Promise<BlockHeader | undefined>
+
+  async findHeaderForHeight (height: number): Promise<BlockHeader> {
+    const header = await this.findHeaderForHeightOrUndefined(height)
+    if (header == null) throw new Error(`No header found for height ${height}`)
+    return header
+  }
+
+  async getHeightRange (): Promise<HeightRange> {
+    return new HeightRange(0, await this.getMaxHeight())
+  }
+
+  async setStorage (storage: ChaintracksStorageBase, log: (...args: any[]) => void): Promise<void> { /* intentional no-op: subclasses override when needed */ }
+
+  async exportBulkHeaders (rootFolder: string, jsonFilename: string, maxPerFile: number): Promise<void> {
+    const info: BulkHeaderFilesInfo = {
+      rootFolder,
+      jsonFilename,
+      files: [],
+      headersPerFile: maxPerFile
+    }
+    const maxHeight = await this.getMaxHeight()
+    const baseFilename = jsonFilename.slice(0, -5) // remove ".json"
+    const prevHash = '00'.repeat(32)
+    const prevChainWork = '00'.repeat(32)
+    for (let height = 0; height <= maxHeight; height += maxPerFile) {
+      const count = Math.min(maxPerFile, maxHeight - height + 1)
+      const file: BulkHeaderFileInfo = {
+        fileName: `${baseFilename}_${info.files.length}.headers`,
+        firstHeight: height,
+        prevHash,
+        prevChainWork,
+        count,
+        lastHash: null,
+        fileHash: null,
+        lastChainWork: ''
+      }
+      const buffer = await this.headersToBuffer(height, count)
+      await this.fs.writeFile(this.fs.pathJoin(rootFolder, file.fileName), buffer)
+    }
+    const bytes = asUint8Array(JSON.stringify(info), 'utf8')
+    await this.fs.writeFile(this.fs.pathJoin(rootFolder, jsonFilename), bytes)
+  }
+}

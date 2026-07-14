@@ -1,0 +1,243 @@
+import {
+  Transaction as BsvTransaction,
+  ActionStatus,
+  ListActionsResult,
+  WalletAction,
+  WalletActionOutput,
+  WalletActionInput,
+  Validation
+} from '@bsv/sdk'
+import type { StorageKnex } from '../StorageKnex'
+import { partitionActionLabels } from './ListActionsSpecOp'
+import { AuthId } from '../../sdk/WalletStorage.interfaces'
+import { TableTxLabel } from '../schema/tables/TableTxLabel'
+import { TableTransaction } from '../schema/tables/TableTransaction'
+import { verifyOne } from '../../utility/utilityHelpers'
+import { TableOutputX } from '../schema/tables/TableOutput'
+import { asString } from '../../utility/utilityHelpers.noBuffer'
+import { makeBrc114ActionTimeLabel, parseBrc114ActionTimeLabels } from '../../utility/brc114ActionTimeLabels'
+
+
+async function enrichActionLabels (
+  storage: StorageKnex,
+  tx: Partial<TableTransaction>,
+  action: WalletAction,
+  timeFilterRequested: boolean
+): Promise<void> {
+  action.labels = (await storage.getLabelsForTransactionId(tx.transactionId)).map(l => l.label)
+  if (timeFilterRequested) {
+    const ts = (tx.created_at != null) ? new Date(tx.created_at as any).getTime() : Number.NaN
+    if (!Number.isNaN(ts)) {
+      const timeLabel = makeBrc114ActionTimeLabel(ts)
+      if (!action.labels.includes(timeLabel)) action.labels.push(timeLabel)
+    }
+  }
+}
+
+async function enrichActionOutputs (
+  storage: StorageKnex,
+  tx: Partial<TableTransaction>,
+  action: WalletAction,
+  includeOutputLockingScripts: boolean
+): Promise<void> {
+  const outputs: TableOutputX[] = await storage.findOutputs({
+    partial: { transactionId: tx.transactionId },
+    noScript: !includeOutputLockingScripts
+  })
+  action.outputs = []
+  for (const o of outputs) {
+    await storage.extendOutput(o, true, true)
+    const wo: WalletActionOutput = {
+      satoshis: o.satoshis || 0,
+      spendable: !!o.spendable,
+      tags: o.tags?.map(t => t.tag) || [],
+      outputIndex: Number(o.vout),
+      outputDescription: o.outputDescription || '',
+      basket: o.basket?.name || ''
+    }
+    if (includeOutputLockingScripts) wo.lockingScript = asString(o.lockingScript || [])
+    action.outputs.push(wo)
+  }
+}
+
+async function enrichActionInputs (
+  storage: StorageKnex,
+  tx: Partial<TableTransaction>,
+  action: WalletAction,
+  includeSourceLockingScripts: boolean,
+  includeUnlockingScripts: boolean
+): Promise<void> {
+  const inputs: TableOutputX[] = await storage.findOutputs({
+    partial: { spentBy: tx.transactionId },
+    noScript: !includeSourceLockingScripts
+  })
+  action.inputs = []
+  if (inputs.length === 0) return
+  const rawTx = await storage.getRawTxOfKnownValidTransaction(tx.txid)
+  let bsvTx: BsvTransaction | undefined
+  if (rawTx != null) bsvTx = BsvTransaction.fromBinary(rawTx)
+  for (const o of inputs) {
+    await storage.extendOutput(o, true, true)
+    const input = bsvTx?.inputs.find(v => v.sourceTXID === o.txid && v.sourceOutputIndex === o.vout)
+    const wo: WalletActionInput = {
+      sourceOutpoint: `${o.txid}.${o.vout}`,
+      sourceSatoshis: o.satoshis || 0,
+      inputDescription: o.outputDescription || '',
+      sequenceNumber: input?.sequence || 0
+    }
+    action.inputs.push(wo)
+    if (includeSourceLockingScripts) wo.sourceLockingScript = asString(o.lockingScript || [])
+    if (includeUnlockingScripts) wo.unlockingScript = input?.unlockingScript?.toHex()
+  }
+}
+
+export async function listActions (
+  storage: StorageKnex,
+  auth: AuthId,
+  vargs: Validation.ValidListActionsArgs
+): Promise<ListActionsResult> {
+  const limit = vargs.limit
+  const offset = vargs.offset
+
+  const k = storage.toDb(undefined)
+
+  const r: ListActionsResult = {
+    totalActions: 0,
+    actions: []
+  }
+
+  const {
+    from: actionTimeFrom,
+    to: actionTimeTo,
+    timeFilterRequested,
+    remainingLabels: ordinaryLabelsPreSpecOp
+  } = parseBrc114ActionTimeLabels(vargs.labels)
+
+  const createdAtFrom = actionTimeFrom === undefined ? undefined : new Date(actionTimeFrom)
+  const createdAtTo = actionTimeTo === undefined ? undefined : new Date(actionTimeTo)
+
+  const { specOp, specOpLabels, labels } = partitionActionLabels(ordinaryLabelsPreSpecOp)
+
+  let labelIds: number[] = []
+  if (labels.length > 0) {
+    const q = k<TableTxLabel>('tx_labels')
+      .where({
+        userId: auth.userId,
+        isDeleted: false
+      })
+      .whereNotNull('txLabelId')
+      .whereIn('label', labels)
+      .select('txLabelId')
+    const rows = await q
+    labelIds = rows.map(r => r.txLabelId)
+  }
+
+  const isQueryModeAll = vargs.labelQueryMode === 'all'
+  if (isQueryModeAll && labelIds.length < labels.length)
+  // all the required labels don't exist, impossible to satisfy.
+  { return r }
+
+  if (!isQueryModeAll && labelIds.length === 0 && labels.length > 0)
+  // any and only non-existing labels, impossible to satisfy.
+  { return r }
+
+  const columns: string[] = [
+    'created_at',
+    'transactionId',
+    'reference',
+    'txid',
+    'satoshis',
+    'status',
+    'isOutgoing',
+    'description',
+    'version',
+    'lockTime'
+  ]
+
+  const stati: string[] = (specOp?.setStatusFilter == null)
+    ? ['completed', 'unprocessed', 'sending', 'unproven', 'unsigned', 'nosend', 'nonfinal']
+    : specOp.setStatusFilter()
+
+  const noLabels = labelIds.length === 0
+
+  const applyTimestampFilters = (q: any) => {
+    if (!timeFilterRequested) return
+    q.whereNotNull('created_at')
+    if (createdAtFrom != null) q.where('created_at', '>=', storage.validateDateForWhere(createdAtFrom))
+    if (createdAtTo != null) q.where('created_at', '<', storage.validateDateForWhere(createdAtTo))
+  }
+
+  const makeWithLabelsQueries = () => {
+    const cteq = k.raw(`
+            SELECT ${columns.map(c => 't.' + c).join(',')},
+                    (SELECT COUNT(*)
+                    FROM tx_labels_map AS m
+                    WHERE m.transactionId = t.transactionId
+                    AND m.txLabelId IN (${labelIds.join(',')})
+                    ) AS lc
+            FROM transactions AS t
+            WHERE t.userId = ${auth.userId}
+            AND t.status in (${stati.map(s => `'${s}'`).join(',')})
+            `)
+
+    const q = k.with('tlc', cteq)
+    q.from('tlc')
+    applyTimestampFilters(q)
+    if (isQueryModeAll) q.where('lc', labelIds.length)
+    else q.where('lc', '>', 0)
+    const qcount = q.clone()
+    q.select(columns)
+    qcount.count('transactionId as total')
+    return { q, qcount }
+  }
+
+  const makeWithoutLabelsQueries = () => {
+    const q = k('transactions').where('userId', auth.userId).whereIn('status', stati)
+    applyTimestampFilters(q)
+    const qcount = q.clone().count('transactionId as total')
+    return { q, qcount }
+  }
+
+  const { q, qcount } = noLabels ? makeWithoutLabelsQueries() : makeWithLabelsQueries()
+
+  q.limit(limit).offset(offset).orderBy('transactionId', 'asc')
+
+  const txs: Array<Partial<TableTransaction>> = await q
+
+  if ((specOp?.postProcess) != null) {
+    await specOp.postProcess(storage, auth, vargs, specOpLabels, txs)
+  }
+
+  if (!limit) r.totalActions = txs.length
+  else if (txs.length < limit) r.totalActions = (offset || 0) + txs.length
+  else {
+    const total = verifyOne(await qcount).total
+    r.totalActions = Number(total)
+  }
+
+  for (const tx of txs) {
+    r.actions.push({
+      txid: tx.txid || '',
+      satoshis: tx.satoshis || 0,
+      status: tx.status! as ActionStatus,
+      isOutgoing: !!tx.isOutgoing,
+      description: tx.description || '',
+      version: tx.version || 0,
+      lockTime: tx.lockTime || 0
+    })
+  }
+
+  if (vargs.includeLabels || vargs.includeInputs || vargs.includeOutputs) {
+    await Promise.all(
+      txs.map(async (tx, i) => {
+        const action = r.actions[i]
+        if (vargs.includeLabels) await enrichActionLabels(storage, tx, action, timeFilterRequested)
+        if (vargs.includeOutputs) await enrichActionOutputs(storage, tx, action, !!vargs.includeOutputLockingScripts)
+        if (vargs.includeInputs) {
+          await enrichActionInputs(storage, tx, action, !!vargs.includeInputSourceLockingScripts, !!vargs.includeInputUnlockingScripts)
+        }
+      })
+    )
+  }
+  return r
+}
