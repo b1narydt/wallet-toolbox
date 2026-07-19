@@ -15,6 +15,10 @@
 FROM node:20-slim AS build
 WORKDIR /toolbox
 
+# better-sqlite3 compiles a native addon via node-gyp — slim lacks the toolchain.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── toolbox: install + compile (out/src is what the server links against) ──
 COPY package.json package-lock.json tsconfig.json tsconfig.all.json ./
 COPY src ./src
