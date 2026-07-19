@@ -36,8 +36,10 @@ WORKDIR /toolbox
 COPY --from=build /toolbox ./
 WORKDIR /toolbox/server
 
-# SQLite BEEF/UTXO state lives on a volume.
-VOLUME /data
+# SQLite BEEF/UTXO state lives at /data (attach a Railway Volume here for
+# persistence; ephemeral otherwise). Railway rejects the Dockerfile VOLUME
+# directive, so just ensure the dir exists.
+RUN mkdir -p /data
 ENV MPC_WALLET_DB=/data/mpc-wallet.sqlite
 ENV MPC_WALLET_LISTEN=:3322
 EXPOSE 3322
