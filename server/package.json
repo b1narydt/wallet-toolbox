@@ -1,0 +1,20 @@
+{
+  "name": "@paragon/mpc-wallet-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hosted BRC-100 HTTP wallet: @bsv/wallet-toolbox owns BEEF/UTXO state, all key derivation and signing is delegated to the PARAGON rust-mpc backend over HTTP. TS twin of go-wallet-toolbox cmd/mpc-wallet-server.",
+  "main": "out/src/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node out/src/server.js"
+  },
+  "dependencies": {
+    "@bsv/wallet-toolbox": "file:..",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
+  }
+}
