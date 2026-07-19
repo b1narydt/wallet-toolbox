@@ -22,8 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 # ── toolbox: install + compile (out/src is what the server links against) ──
 COPY package.json package-lock.json tsconfig.json tsconfig.all.json ./
 COPY src ./src
-# better-sqlite3 fetches a prebuilt binary for this platform during install.
-RUN npm ci
+# --ignore-scripts skips the toolbox's `prepublish` hook (a full root `tsc --build`
+# that references the client/mobile projects we don't ship) AND better-sqlite3's
+# native build — so rebuild that one addon explicitly (toolchain is present above).
+RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
+# Build ONLY the main library (out/src/index.js) — not client/mobile.
 RUN npx tsc --build tsconfig.all.json
 
 # ── server: nested package, depends on the toolbox via file:.. ─────────────
