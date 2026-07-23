@@ -9,8 +9,8 @@ import type { PendingStorageInput } from '../Wallet'
  * `deriveWalletPaymentLockingScript` is optional in TS and maps to the Rust
  * trait's defaulted method (`Ok(None)` = not delegated); until upstream
  * `bsv-wallet-toolbox` releases the trait addition (tracked in
- * b1narydt/rust-wallet-toolbox (issue pending)), this member is a fork-side
- * extension.
+ * https://github.com/b1narydt/rust-wallet-toolbox/issues/31), this member is a
+ * fork-side extension.
  *
  * Scope: BRC-29/SABPPP change-input signing, change-output locking scripts,
  * and internalize-action wallet-payment script verification ONLY. Identity
