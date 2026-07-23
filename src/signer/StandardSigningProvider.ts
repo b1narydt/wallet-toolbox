@@ -31,6 +31,18 @@ export class StandardSigningProvider implements SigningProvider {
     return new P2PKH().lock(address).toBinary()
   }
 
+  async deriveWalletPaymentLockingScript (
+    derivationPrefix: string,
+    derivationSuffix: string,
+    senderIdentityKey: string
+  ): Promise<number[]> {
+    const keyID = `${derivationPrefix} ${derivationSuffix}`
+    const address = this.keyDeriver
+      .derivePublicKey(brc29ProtocolID, keyID, senderIdentityKey, true)
+      .toAddress()
+    return new P2PKH().lock(address).toBinary()
+  }
+
   async signInput (
     sighash: number[],
     sighashType: number,

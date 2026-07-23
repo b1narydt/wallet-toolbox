@@ -3,13 +3,19 @@ import type { PendingStorageInput } from '../Wallet'
 
 /**
  * Delegation seam for transaction-input signing and change locking-script
- * derivation. Mirrors the Rust reference trait
+ * derivation. Required members mirror the Rust reference trait
  * (rust-wallet-toolbox src/signer/signing_provider.rs) 1:1 so provider
  * implementations port across the two stacks.
+ * `deriveWalletPaymentLockingScript` is optional in TS and maps to the Rust
+ * trait's defaulted method (`Ok(None)` = not delegated); until upstream
+ * `bsv-wallet-toolbox` releases the trait addition (tracked in
+ * b1narydt/rust-wallet-toolbox (issue pending)), this member is a fork-side
+ * extension.
  *
- * Scope: BRC-29/SABPPP change-input signing and change-output locking scripts
- * ONLY. Identity keys, BRC-2 encrypt/decrypt, HMAC and certificates never
- * route through this interface.
+ * Scope: BRC-29/SABPPP change-input signing, change-output locking scripts,
+ * and internalize-action wallet-payment script verification ONLY. Identity
+ * keys, BRC-2 encrypt/decrypt, HMAC and certificates never route through this
+ * interface.
  */
 export interface SigningProvider {
   /**
@@ -46,4 +52,18 @@ export interface SigningProvider {
 
   /** The wallet identity public key (root public key). */
   identityPublicKey: () => PublicKey
+
+  /**
+   * OPTIONAL. Derive the expected BRC-29 P2PKH locking script for an INCOMING
+   * wallet-payment output (internalizeAction verification). Counterparty is the
+   * SENDER's identity key; the derivation is for self (the receiver's own child
+   * key), so implementations need public-key data only.
+   * When absent, internalizeAction falls back to the legacy local
+   * keyDeriver.derivePrivateKey path unchanged.
+   */
+  deriveWalletPaymentLockingScript?: (
+    derivationPrefix: string,
+    derivationSuffix: string,
+    senderIdentityKey: string
+  ) => Promise<number[]>
 }

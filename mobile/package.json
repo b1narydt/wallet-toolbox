@@ -1,6 +1,6 @@
 {
   "name": "@bsv/wallet-toolbox-mobile",
-  "version": "2.4.0-paragon.1",
+  "version": "2.4.0-paragon.2",
   "description": "Client only Wallet Storage",
   "main": "./out/src/index.mobile.js",
   "types": "./out/src/index.mobile.d.ts",

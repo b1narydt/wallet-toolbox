@@ -1,4 +1,4 @@
-import { Beef, InternalizeActionArgs, InternalizeOutput, P2PKH, WalletProtocol, Validation } from '@bsv/sdk'
+import { Beef, InternalizeActionArgs, InternalizeOutput, P2PKH, Script, WalletProtocol, Validation } from '@bsv/sdk'
 import { Wallet } from '../../Wallet'
 import { AuthId, StorageInternalizeActionResult } from '../../sdk/WalletStorage.interfaces'
 import { WERR_INTERNAL, WERR_INVALID_PARAMETER } from '../../sdk/WERR_errors'
@@ -56,7 +56,7 @@ export async function internalizeAction (
         setupBasketInsertionForOutput(o, vargs)
         break
       case 'wallet payment':
-        setupWalletPaymentForOutput(o, vargs)
+        await setupWalletPaymentForOutput(o, vargs)
         break
       default:
         throw new WERR_INTERNAL(`unexpected protocol ${o.protocol}`)
@@ -67,15 +67,22 @@ export async function internalizeAction (
 
   return r
 
-  function setupWalletPaymentForOutput (o: InternalizeOutput, dargs: Validation.ValidInternalizeActionArgs) {
+  async function setupWalletPaymentForOutput (o: InternalizeOutput, dargs: Validation.ValidInternalizeActionArgs): Promise<void> {
     const p = o.paymentRemittance
     const output = tx.outputs[o.outputIndex]
     if (p == null) throw new WERR_INVALID_PARAMETER('paymentRemittance', `valid for protocol ${o.protocol}`)
 
-    const keyID = `${p.derivationPrefix} ${p.derivationSuffix}`
-
-    const privKey = wallet.keyDeriver.derivePrivateKey(brc29ProtocolID, keyID, p.senderIdentityKey)
-    const expectedLockScript = new P2PKH().lock(privKey.toAddress())
+    const provider = wallet.signingProvider
+    let expectedLockScript: Script
+    if (provider?.deriveWalletPaymentLockingScript != null) {
+      expectedLockScript = Script.fromBinary(
+        await provider.deriveWalletPaymentLockingScript(p.derivationPrefix, p.derivationSuffix, p.senderIdentityKey)
+      )
+    } else {
+      const keyID = `${p.derivationPrefix} ${p.derivationSuffix}`
+      const privKey = wallet.keyDeriver.derivePrivateKey(brc29ProtocolID, keyID, p.senderIdentityKey)
+      expectedLockScript = new P2PKH().lock(privKey.toAddress())
+    }
     if (output.lockingScript.toHex() !== expectedLockScript.toHex()) { throw new WERR_INVALID_PARAMETER('paymentRemittance', 'locked by script conforming to BRC-29') }
   }
 

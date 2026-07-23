@@ -10,6 +10,7 @@ import {
   UnlockingScript
 } from '@bsv/sdk'
 import { ScriptTemplateBRC29 } from '../../src/utility/ScriptTemplateBRC29'
+import { SigningProvider } from '../../src/signer/SigningProvider'
 import { StandardSigningProvider } from '../../src/signer/StandardSigningProvider'
 import { Wallet } from '../../src/Wallet'
 import { WalletSigner } from '../../src/signer/WalletSigner'
@@ -94,6 +95,18 @@ describe('StandardSigningProvider', () => {
     await expect(
       provider.signInput([1, 2, 3], 0x41, derivationPrefix, derivationSuffix, PublicKey.fromString(identityKey))
     ).rejects.toThrow('32 bytes')
+  })
+
+  test('deriveWalletPaymentLockingScript is an OPTIONAL interface member; StandardSigningProvider implements it', () => {
+    // a minimal provider without the optional member must satisfy the interface (compile-level check)
+    const minimal: SigningProvider = {
+      deriveChangeLockingScript: async () => [],
+      signInput: async () => [],
+      identityPublicKey: () => PublicKey.fromString(identityKey)
+    }
+    expect(minimal.deriveWalletPaymentLockingScript).toBeUndefined()
+    const asInterface: SigningProvider = provider
+    expect(typeof asInterface.deriveWalletPaymentLockingScript).toBe('function')
   })
 })
 
