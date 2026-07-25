@@ -1,5 +1,18 @@
 # mpc-wallet-server (TypeScript)
 
+> **DEPRECATED (2026-07-24) — out of the path, do not deploy or build on.**
+> Owner decision (rust-mpc#147): this was a throwaway test harness for the hosted
+> WaaS birth mint, and it minted a non-canonical 3-field DID token (it passed a
+> pre-built ownerSig field *and* let `PushDrop.lock`'s `includeSignature` append
+> another → `[serial, ownerSig, createSig]`, which every policy-conforming cosigner
+> rejects — the canonical anchor is exactly `[serial, ownerSig]`). It was removed
+> from the staging environment (deployment down, endpoints 404). The WaaS/staging
+> birth mint now lives in the **Paragon-desktop TS wallet-toolbox** (the client owns
+> the mint; the coordinator seals via `POST /api/v1/vaults/{id}/seal`); the
+> in-process Rust mint is enterprise-profile-only and is the authoritative 2-field
+> format. Kept read-only as prior art for the `SigningProvider`-over-HTTP seam
+> below. See rust-mpc#147 and the PARAGON project `CLAUDE.md`.
+
 A `@bsv/wallet-toolbox` wallet run as a hosted BRC-100 HTTP server whose
 crypto + signing is delegated to a remote PARAGON rust-mpc backend. TS twin
 of `go-wallet-toolbox/cmd/mpc-wallet-server` — same contract:
